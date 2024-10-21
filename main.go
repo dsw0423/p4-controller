@@ -53,6 +53,8 @@ func main() {
 
 	// setting pipline config
 	router.POST("/pipeconf", setPipeconf)
+	// insert a table entry using exact matching
+	router.POST("/tableEntryExact", insertTableEntryExact)
 
 	go router.Run(defaultWebServerAddress)
 	<-stopCh
