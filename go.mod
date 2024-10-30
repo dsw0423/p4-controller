@@ -2,8 +2,6 @@ module github.com/dsw0423/p4-controller
 
 go 1.23.2
 
-require google.golang.org/grpc v1.67.1
-
 require (
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
@@ -37,6 +35,7 @@ require (
 	github.com/antoninbas/p4runtime-go-client v0.0.0-20240422172544-372ceebfe93a
 	github.com/gin-gonic/gin v1.10.0
 	github.com/p4lang/p4runtime v1.4.0-rc.5
-	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/sirupsen/logrus v1.9.3
+	google.golang.org/grpc v1.67.1
 	google.golang.org/protobuf v1.35.1 // indirect
 )

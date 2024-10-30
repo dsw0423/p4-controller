@@ -27,3 +27,14 @@ func stringToByteSlice(s string) []byte {
 	}
 	return data
 }
+
+func byteSliceToString(bytes []byte) string {
+	var builder strings.Builder
+	for _, b := range bytes {
+		builder.WriteString(strconv.FormatUint(uint64(b), 16))
+		builder.WriteByte(byte(':'))
+	}
+	res := builder.String()
+	res = res[:len(res)-1]
+	return res
+}
