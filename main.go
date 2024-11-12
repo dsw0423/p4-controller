@@ -13,6 +13,7 @@ import (
 	p4_v1 "github.com/p4lang/p4runtime/go/p4/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -28,6 +29,8 @@ var (
 	tmpDir string
 	/* P4Runtime controller. */
 	p4rt_ctl *client.Client
+	/* Redis client. */
+	redisClient *redis.Client
 )
 
 func main() {
@@ -90,6 +93,14 @@ func initialize() {
 	tmpDir, _ = os.Getwd()
 	tmpDir = tmpDir + "/tmp/"
 	log.Printf("tmpDir: %s\n", tmpDir)
+
+	redisClient = redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       0,
+		Protocol: 2,
+	})
+	
 }
 
 func handleStreamMessages(ctx context.Context, p4RtC *client.Client, messageCh <-chan *p4_v1.StreamMessageResponse) {

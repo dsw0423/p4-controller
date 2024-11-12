@@ -5,8 +5,10 @@ go 1.23.2
 require (
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.4 // indirect
 	github.com/cloudwego/iasm v0.2.0 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
@@ -35,6 +37,7 @@ require (
 	github.com/antoninbas/p4runtime-go-client v0.0.0-20240422172544-372ceebfe93a
 	github.com/gin-gonic/gin v1.10.0
 	github.com/p4lang/p4runtime v1.4.0-rc.5
+	github.com/redis/go-redis/v9 v9.7.0
 	github.com/sirupsen/logrus v1.9.3
 	google.golang.org/grpc v1.67.1
 	google.golang.org/protobuf v1.35.1 // indirect

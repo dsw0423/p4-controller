@@ -18,16 +18,21 @@ func setPipeconfHandler(ctx *gin.Context) {
 
 	bin, _ := ctx.FormFile("bin")
 	p4info, _ := ctx.FormFile("p4info")
-	binPath := tmpDir + bin.Filename
-	p4infoPath := tmpDir + p4info.Filename
-	ctx.SaveUploadedFile(bin, binPath)
-	ctx.SaveUploadedFile(p4info, p4infoPath)
-	log.Println("saved bin and p4info.")
 
-	if _, err := p4rt_ctl.SetFwdPipe(context.Background(), binPath, p4infoPath, 0); err != nil {
+	binBytes := make([]byte, bin.Size)
+	binFile, _ := bin.Open()
+	count, _ := binFile.Read(binBytes)
+	log.Println(count)
+
+	p4infoBytes := make([]byte, p4info.Size)
+	p4infoFile, _ := p4info.Open()
+	count, _ = p4infoFile.Read(p4infoBytes)
+	log.Println(count)
+
+	if _, err := p4rt_ctl.SetFwdPipeFromBytes(context.Background(), binBytes, p4infoBytes, 0); err != nil {
 		msg := "setting pipeline config failed."
 		ctx.JSON(http.StatusOK, gin.H{
-			"msg": msg,
+			"msg": err.Error(),
 		})
 		log.Println(msg)
 	} else {
@@ -36,6 +41,18 @@ func setPipeconfHandler(ctx *gin.Context) {
 			"msg": msg,
 		})
 		log.Println(msg)
+
+		if redisClient != nil && redisClient.Ping(context.Background()).Err() == nil {
+			redisClient.Set(context.Background(), "bin", binBytes, 0)
+			redisClient.Set(context.Background(), "p4info", p4infoBytes, 0)
+			log.Println("saved bin and p4info to Redis.")
+		} else {
+			binPath := tmpDir + bin.Filename
+			p4infoPath := tmpDir + p4info.Filename
+			ctx.SaveUploadedFile(bin, binPath)
+			ctx.SaveUploadedFile(p4info, p4infoPath)
+			log.Println("saved bin and p4info to disk.")
+		}
 	}
 }
 
