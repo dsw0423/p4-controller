@@ -5,15 +5,16 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/dsw0423/p4-controller/internal/handler"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/antoninbas/p4runtime-go-client/pkg/client"
 	"github.com/antoninbas/p4runtime-go-client/pkg/signals"
 	"github.com/gin-gonic/gin"
 	p4_v1 "github.com/p4lang/p4runtime/go/p4/v1"
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -64,14 +65,20 @@ func main() {
 	/* start web router */
 	router := gin.Default()
 
-	// setting pipline config
-	router.POST("/pipeconf", setPipeconfHandler)
-	// insert a table entry using exact matching
-	router.POST("/tableEntryExact", insertTableEntryExactHandler)
-	// send a PacketOut stream message
-	router.POST("/packetout", sendPacketOutHandler)
-	//get table entries by name
-	router.GET("/tableEntries", getTableEntriesByNameHandler)
+	// login
+	router.POST("/login", handler.Login)
+
+	authGroup := router.Group("/auth", handler.AuthCheck)
+	{
+		// setting pipline config
+		authGroup.POST("/pipeconf", setPipeconfHandler)
+		// insert a table entry using exact matching
+		authGroup.POST("/tableEntryExact", insertTableEntryExactHandler)
+		// send a PacketOut stream message
+		authGroup.POST("/packetout", sendPacketOutHandler)
+		// get table entries by name
+		authGroup.GET("/tableEntries", getTableEntriesByNameHandler)
+	}
 
 	go router.Run(defaultWebServerAddress)
 	<-stopCh
@@ -100,7 +107,7 @@ func initialize() {
 		DB:       0,
 		Protocol: 2,
 	})
-	
+
 }
 
 func handleStreamMessages(ctx context.Context, p4RtC *client.Client, messageCh <-chan *p4_v1.StreamMessageResponse) {
