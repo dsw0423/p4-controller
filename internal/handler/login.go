@@ -3,6 +3,7 @@ package handler
 import (
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"log"
 	"net/http"
 	"time"
@@ -52,15 +53,19 @@ func Login(c *gin.Context) {
 	err = db.QueryRow(query, user.Username).Scan(&encoded)
 	if err != nil {
 		log.Println(err.Error())
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"msg": "execute sql error: " + err.Error(),
-		})
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusForbidden, gin.H{"msg": "username or password error: " + err.Error()})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"msg": "execute sql error: " + err.Error(),
+			})
+		}
 		return
 	}
 
 	if err := compareEncodedAndPassword(encoded, user.Password); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"msg": "user name or password error: " + err.Error(),
+		c.JSON(http.StatusForbidden, gin.H{
+			"msg": "username or password error: " + err.Error(),
 		})
 		return
 	}
@@ -78,12 +83,12 @@ func Login(c *gin.Context) {
 }
 
 func compareEncodedAndPassword(encodedBase64, password string) error {
-	encoded, err := base64.StdEncoding.DecodeString(encodedBase64)
+	encrypted, err := base64.StdEncoding.DecodeString(encodedBase64)
 	if err != nil {
 		return err
 	}
 
-	return bcrypt.CompareHashAndPassword(encoded, []byte(password))
+	return bcrypt.CompareHashAndPassword(encrypted, []byte(password))
 }
 
 func generateTokens(username string) (string, string, error) {
