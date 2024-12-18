@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func AuthCheck(c *gin.Context) {
@@ -22,24 +22,29 @@ func AuthCheck(c *gin.Context) {
 		return
 	}
 
-	s := parts[1]
-	tk, err := jwt.Parse(s, func(t *jwt.Token) (interface{}, error) {
+	tk := parts[1]
+	if err := validateToken(tk); err != nil {
+		log.Println(err.Error())
+		c.JSON(http.StatusForbidden, gin.H{
+			"msg": "invalid access token: " + err.Error(),
+		})
+		c.Abort()
+		return
+	}
+	log.Println("valid access token")
+}
+
+func validateToken(token string) error {
+	tk, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return secret, nil
 	})
 
-	if err != nil {
+	if err != nil || !tk.Valid {
 		log.Println(err.Error())
-		c.JSON(http.StatusForbidden, gin.H{
-			"msg": "token parse error: " + err.Error(),
-		})
-		c.Abort()
-		return
 	}
 
-	if claims, ok := tk.Claims.(jwt.MapClaims); ok {
-		fmt.Println("User", claims["username"], "authorized")
-	}
+	return err
 }

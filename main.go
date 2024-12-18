@@ -68,6 +68,9 @@ func main() {
 	// login
 	router.POST("/login", handler.Login)
 
+	// refresh tokens
+	router.POST("/refreshToken", handler.RefreshToken)
+
 	authGroup := router.Group("/auth", handler.AuthCheck)
 	{
 		// setting pipline config

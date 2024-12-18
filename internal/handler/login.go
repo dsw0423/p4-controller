@@ -5,15 +5,19 @@ import (
 	"encoding/base64"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
 var (
-	secret = []byte("dsw")
+	secret          = []byte("dsw")
+	expAccess       = 5 * time.Minute
+	expRefresh      = 7 * time.Hour * 24
+	loginExpireTime = 3 * 24 * 60 * 60 // 3 day
 )
 
 type userLogin struct {
@@ -42,6 +46,7 @@ func Login(c *gin.Context) {
 	}
 	log.Println(user.Username + " : " + user.Password)
 
+	/* TODO: password should be encrypted in transport*/
 	var encoded string
 	query := `select password from p4ctl_users where username = ?`
 	err = db.QueryRow(query, user.Username).Scan(&encoded)
@@ -60,23 +65,15 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	tk := jwt.NewWithClaims(
-		jwt.SigningMethodHS256,
-		jwt.MapClaims{
-			"username": user.Username,
-		})
-	s, err := tk.SignedString(secret)
+	accessToken, refreshToken, err := generateTokens(user.Username)
 	if err != nil {
-		log.Println(err.Error())
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"msg": err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	log.Println("JWT:", s)
 	c.JSON(http.StatusOK, gin.H{
-		"token": s,
+		"accessToken":  accessToken,
+		"refreshToken": refreshToken,
 	})
 }
 
@@ -87,4 +84,28 @@ func compareEncodedAndPassword(encodedBase64, password string) error {
 	}
 
 	return bcrypt.CompareHashAndPassword(encoded, []byte(password))
+}
+
+func generateTokens(username string) (string, string, error) {
+	exp := time.Now().Add(expAccess).Unix()
+	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": username,
+		"exp": exp,
+	})
+	accessTokenString, err := accessToken.SignedString(secret)
+	if err != nil {
+		return "", "", err
+	}
+
+	exp = time.Now().Add(expRefresh).Unix()
+	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": username,
+		"exp": exp,
+	})
+	refreshTokenString, err := refreshToken.SignedString(secret)
+	if err != nil {
+		return "", "", err
+	}
+
+	return accessTokenString, refreshTokenString, nil
 }
