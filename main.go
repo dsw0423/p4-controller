@@ -65,6 +65,9 @@ func main() {
 	/* start web router */
 	router := gin.Default()
 
+	/* CORS */
+	router.Use(handler.Cors)
+
 	// login
 	router.POST("/login", handler.Login)
 
