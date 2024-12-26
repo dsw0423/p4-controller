@@ -54,7 +54,7 @@ func Login(c *gin.Context) {
 	if err != nil {
 		log.Println(err.Error())
 		if errors.Is(err, sql.ErrNoRows) {
-			c.JSON(http.StatusForbidden, gin.H{"msg": "username or password error: " + err.Error()})
+			c.JSON(http.StatusUnauthorized, gin.H{"msg": "username or password error: " + err.Error()})
 		} else {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"msg": "execute sql error: " + err.Error(),
@@ -64,7 +64,7 @@ func Login(c *gin.Context) {
 	}
 
 	if err := compareEncodedAndPassword(encoded, user.Password); err != nil {
-		c.JSON(http.StatusForbidden, gin.H{
+		c.JSON(http.StatusUnauthorized, gin.H{
 			"msg": "username or password error: " + err.Error(),
 		})
 		return

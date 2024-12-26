@@ -31,7 +31,7 @@ func RefreshToken(c *gin.Context) {
 		if newRefreshToken != "" {
 			h["refreshToken"] = newRefreshToken
 		} else {
-			c.JSON(http.StatusForbidden, gin.H{"msg": "login again"})
+			c.JSON(http.StatusUnauthorized, gin.H{"msg": "login again"})
 			return
 		}
 	}
