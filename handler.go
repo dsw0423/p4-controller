@@ -12,7 +12,12 @@ import (
 )
 
 func setPipeconfHandler(ctx *gin.Context) {
-	if notPrimary(ctx) {
+	if notPrimary() {
+		fmt.Println("not primary.")
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"msg": "controller not primary.",
+		})
+		ctx.Abort()
 		return
 	}
 
@@ -23,15 +28,17 @@ func setPipeconfHandler(ctx *gin.Context) {
 	binFile, _ := bin.Open()
 	count, _ := binFile.Read(binBytes)
 	log.Println(count)
+	log.Println(binBytes)
 
 	p4infoBytes := make([]byte, p4info.Size)
 	p4infoFile, _ := p4info.Open()
 	count, _ = p4infoFile.Read(p4infoBytes)
 	log.Println(count)
+	log.Println(p4infoBytes)
 
 	if _, err := p4rt_ctl.SetFwdPipeFromBytes(context.Background(), binBytes, p4infoBytes, 0); err != nil {
 		msg := "setting pipeline config failed."
-		ctx.JSON(http.StatusOK, gin.H{
+		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"msg": err.Error(),
 		})
 		log.Println(msg)
@@ -57,7 +64,7 @@ func setPipeconfHandler(ctx *gin.Context) {
 }
 
 func insertTableEntryExactHandler(ctx *gin.Context) {
-	if notPrimary(ctx) {
+	if notPrimary() {
 		return
 	}
 
