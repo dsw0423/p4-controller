@@ -48,3 +48,7 @@ require (
 	google.golang.org/grpc v1.67.1
 	google.golang.org/protobuf v1.35.1 // indirect
 )
+
+replace (
+	github.com/antoninbas/p4runtime-go-client => ../p4runtime-go-client
+)

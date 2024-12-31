@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/dsw0423/p4-controller/internal/handler"
 	log "github.com/sirupsen/logrus"
@@ -44,14 +45,24 @@ func main() {
 	}
 	defer conn.Close()
 
-	stub := p4_v1.NewP4RuntimeClient(conn)
-	electionId := &p4_v1.Uint128{High: 0, Low: 100}
-	p4rt_ctl = client.NewClient(stub, defaultDeviceId, electionId)
 	arbitrationCh := make(chan bool)
 	messageCh := make(chan *p4_v1.StreamMessageResponse, 100)
 	stopCh := signals.RegisterSignalHandlers()
+	stub := p4_v1.NewP4RuntimeClient(conn)
+	electionId := &p4_v1.Uint128{High: 0, Low: 100}
+	p4rt_ctl = client.NewClientForRole(stub, defaultDeviceId, electionId, &p4_v1.Role{Name: "main"})
 
-	go p4rt_ctl.Run(stopCh, arbitrationCh, messageCh)
+	go func() {
+		for {
+			if err := p4rt_ctl.Run(stopCh, arbitrationCh, messageCh); err == nil {
+				break
+			} else {
+				log.Println(err.Error())
+			}
+			log.Println("Trying to reconnect to P4Runtime server in 500ms...")
+			time.Sleep(500 * time.Millisecond)
+		}
+	}()
 
 	/* handle StreamChannel messages except arbitration result. */
 	go func() {
