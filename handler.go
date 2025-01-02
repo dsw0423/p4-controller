@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/exec"
+	"time"
 
 	"github.com/antoninbas/p4runtime-go-client/pkg/client"
 	"github.com/gin-gonic/gin"
@@ -36,31 +39,54 @@ func setPipeconfHandler(ctx *gin.Context) {
 	log.Println(count)
 	log.Println(p4infoBytes)
 
-	if _, err := p4rt_ctl.SetFwdPipeFromBytes(context.Background(), binBytes, p4infoBytes, 0); err != nil {
-		msg := "setting pipeline config failed."
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"msg": err.Error(),
-		})
-		log.Println(msg)
-	} else {
-		msg := "setting pipeline config successfully."
-		ctx.JSON(http.StatusOK, gin.H{
-			"msg": msg,
-		})
-		log.Println(msg)
+	for i := 0; i < 3; i++ {
+		if _, err := p4rt_ctl.SetFwdPipeFromBytes(context.Background(), binBytes, p4infoBytes, 0); err != nil {
+			// restart infrap4d and reconnect.
+			path := "/root/p4-example/setup_ports.sh"
+			cmd := exec.Command("bash", path)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
 
-		if redisClient != nil && redisClient.Ping(context.Background()).Err() == nil {
-			redisClient.Set(context.Background(), "bin", binBytes, 0)
-			redisClient.Set(context.Background(), "p4info", p4infoBytes, 0)
-			log.Println("saved bin and p4info to Redis.")
+			var i int
+			for i = 0; i < 3; i++ {
+				if err := cmd.Run(); err == nil {
+					break
+				} else {
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
+			if i == 3 {
+				ctx.JSON(http.StatusInternalServerError, gin.H{
+					"msg": "setting pipeline config failed. please check device status.",
+				})
+				return
+			}
+			time.Sleep(600 * time.Millisecond)
 		} else {
-			binPath := tmpDir + bin.Filename
-			p4infoPath := tmpDir + p4info.Filename
-			ctx.SaveUploadedFile(bin, binPath)
-			ctx.SaveUploadedFile(p4info, p4infoPath)
-			log.Println("saved bin and p4info to disk.")
+			msg := "setting pipeline config successfully."
+			ctx.JSON(http.StatusOK, gin.H{
+				"msg": msg,
+			})
+			log.Println(msg)
+
+			if redisClient != nil && redisClient.Ping(context.Background()).Err() == nil {
+				redisClient.Set(context.Background(), "bin", binBytes, 0)
+				redisClient.Set(context.Background(), "p4info", p4infoBytes, 0)
+				log.Println("saved bin and p4info to Redis.")
+			} else {
+				binPath := tmpDir + bin.Filename
+				p4infoPath := tmpDir + p4info.Filename
+				ctx.SaveUploadedFile(bin, binPath)
+				ctx.SaveUploadedFile(p4info, p4infoPath)
+				log.Println("saved bin and p4info to disk.")
+			}
+			return
 		}
 	}
+
+	ctx.JSON(http.StatusInternalServerError, gin.H{
+		"msg": "setting pipeline config failed. please check device status.",
+	})
 }
 
 func insertTableEntryExactHandler(ctx *gin.Context) {

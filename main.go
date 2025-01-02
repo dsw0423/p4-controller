@@ -59,8 +59,8 @@ func main() {
 			} else {
 				log.Println(err.Error())
 			}
-			log.Println("Trying to reconnect to P4Runtime server in 500ms...")
-			time.Sleep(500 * time.Millisecond)
+			log.Println("Trying to reconnect to P4Runtime server in 100ms...")
+			time.Sleep(100 * time.Millisecond)
 		}
 	}()
 
@@ -114,6 +114,11 @@ func monitoringArbitration(arbitrationCh chan bool) {
 }
 
 func initialize() {
+	if os.Geteuid() != 0 {
+		log.Errorln("root permission is required.")
+		os.Exit(1)
+	}
+
 	tmpDir, _ = os.Getwd()
 	tmpDir = tmpDir + "/tmp/"
 	log.Printf("tmpDir: %s\n", tmpDir)
