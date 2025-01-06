@@ -25,7 +25,7 @@ func AuthCheck(c *gin.Context) {
 	tk := parts[1]
 	if err := validateToken(tk); err != nil {
 		log.Println(err.Error())
-		c.JSON(http.StatusForbidden, gin.H{
+		c.JSON(http.StatusUnauthorized, gin.H{
 			"msg": "invalid access token: " + err.Error(),
 		})
 		c.Abort()

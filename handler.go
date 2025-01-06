@@ -61,7 +61,7 @@ func setPipeconfHandler(ctx *gin.Context) {
 				})
 				return
 			}
-			time.Sleep(600 * time.Millisecond)
+			time.Sleep(800 * time.Millisecond)
 		} else {
 			msg := "setting pipeline config successfully."
 			ctx.JSON(http.StatusOK, gin.H{
