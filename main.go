@@ -85,6 +85,11 @@ func main() {
 	// refresh tokens
 	router.POST("/refreshToken", handler.RefreshToken)
 
+	// TODO: move to authGroup
+	router.GET("/filesList", filesListHandler)
+	router.DELETE("/file/:hash", fileDeleteHandler)
+	router.GET("/file/:hash", fileDownloadHandler)
+
 	authGroup := router.Group("/auth", handler.AuthCheck)
 	{
 		// setting pipline config

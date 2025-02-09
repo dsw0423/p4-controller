@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,7 +14,68 @@ import (
 	"github.com/antoninbas/p4runtime-go-client/pkg/client"
 	"github.com/gin-gonic/gin"
 	p4_v1 "github.com/p4lang/p4runtime/go/p4/v1"
+	"github.com/redis/go-redis/v9"
 )
+
+const (
+	zsetName = `filesHash`
+)
+
+func filesListHandler(ctx *gin.Context) {
+	filesHash := redisClient.ZRevRange(context.Background(), zsetName, 0, -1).Val()
+	files := make([]FileInfoString, 0, len(filesHash))
+	for _, hash := range filesHash {
+		fileInfo := FileInfo{}
+		redisClient.HGetAll(context.Background(), hash).Scan(&fileInfo)
+		t := time.Unix(fileInfo.Timestamp, 0)
+		files = append(files,
+			FileInfoString{fileInfo.FileName, fmt.Sprintf("%d", fileInfo.Size), t.Format("2006-01-02 15:04:05"), hash})
+	}
+	ctx.JSON(http.StatusOK, files)
+}
+
+func fileDeleteHandler(ctx *gin.Context) {
+	hash := ctx.Param("hash")
+	fileName, err := redisClient.HGet(context.Background(), hash, "fileName").Result()
+	if err == redis.Nil {
+		ctx.JSON(http.StatusNotFound, gin.H{
+			"msg": "file not exist.",
+		})
+		return
+	}
+
+	filePath := tmpDir + fileName
+	err = os.Remove(filePath)
+	if err != nil && !os.IsNotExist(err) {
+		log.Println(err.Error())
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"msg": "delete file failed: " + err.Error(),
+		})
+		return
+	}
+
+	redisClient.Del(context.Background(), hash)
+	redisClient.ZRem(context.Background(), zsetName, hash)
+	ctx.JSON(http.StatusOK, gin.H{
+		"msg": "delete file successfully.",
+	})
+}
+
+func fileDownloadHandler(ctx *gin.Context) {
+	hash := ctx.Param("hash")
+	fileName, err := redisClient.HGet(context.Background(), hash, "fileName").Result()
+	if err == redis.Nil {
+		ctx.JSON(http.StatusNotFound, gin.H{
+			"msg": "file not exist.",
+		})
+		return
+	}
+
+	filePath := tmpDir + fileName
+	ctx.Header("Content-Disposition", "attachment; filename="+fileName)
+	ctx.Header("Content-Type", "application/octet-stream")
+	ctx.File(filePath)
+}
 
 func setPipeconfHandler(ctx *gin.Context) {
 	if notPrimary() {
@@ -70,15 +133,24 @@ func setPipeconfHandler(ctx *gin.Context) {
 			log.Println(msg)
 
 			if redisClient != nil && redisClient.Ping(context.Background()).Err() == nil {
-				redisClient.Set(context.Background(), "bin", binBytes, 0)
-				redisClient.Set(context.Background(), "p4info", p4infoBytes, 0)
-				log.Println("saved bin and p4info to Redis.")
-			} else {
+				binHash := getSha256String(binBytes)
+				p4infoHash := getSha256String(p4infoBytes)
+				now := time.Now().Unix()
+
+				redisClient.ZAdd(context.Background(), zsetName,
+					redis.Z{Score: float64(now), Member: binHash},
+					redis.Z{Score: float64(now), Member: p4infoHash},
+				)
+
+				redisClient.HSet(context.Background(), binHash, FileInfo{bin.Filename, bin.Size, now})
+				redisClient.HSet(context.Background(), p4infoHash, FileInfo{p4info.Filename, p4info.Size, now})
+
 				binPath := tmpDir + bin.Filename
 				p4infoPath := tmpDir + p4info.Filename
-				ctx.SaveUploadedFile(bin, binPath)
-				ctx.SaveUploadedFile(p4info, p4infoPath)
-				log.Println("saved bin and p4info to disk.")
+				os.WriteFile(binPath, binBytes, 0644)
+				os.WriteFile(p4infoPath, p4infoBytes, 0644)
+
+				log.Println("saved bin and p4info to Redis and disk.")
 			}
 			return
 		}
@@ -87,6 +159,11 @@ func setPipeconfHandler(ctx *gin.Context) {
 	ctx.JSON(http.StatusInternalServerError, gin.H{
 		"msg": "setting pipeline config failed. please check device status.",
 	})
+}
+
+func getSha256String(data []byte) string {
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:])
 }
 
 func insertTableEntryExactHandler(ctx *gin.Context) {
@@ -116,7 +193,7 @@ func insertTableEntryExactHandler(ctx *gin.Context) {
 
 	entry := p4rt_ctl.NewTableEntry(tabelEntry.TableName, mfs, action, nil)
 	if err := p4rt_ctl.InsertTableEntry(context.Background(), entry); err != nil {
-		ctx.JSON(503, gin.H{
+		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"msg": err.Error(),
 		})
 		return
