@@ -85,6 +85,8 @@ func main() {
 	// refresh tokens
 	router.POST("/refreshToken", handler.RefreshToken)
 
+	router.GET("/portsBitRate", portsBitRateHandler)
+
 	authGroup := router.Group("/auth", handler.AuthCheck)
 	{
 		// setting pipline config

@@ -13,6 +13,7 @@ import (
 
 	"github.com/antoninbas/p4runtime-go-client/pkg/client"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	p4_v1 "github.com/p4lang/p4runtime/go/p4/v1"
 	"github.com/redis/go-redis/v9"
 )
@@ -20,6 +21,109 @@ import (
 const (
 	zsetName = `filesHash`
 )
+
+var (
+	upgrader = websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+)
+
+func portsBitRateHandler(ctx *gin.Context) {
+	conn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
+	if err != nil {
+		log.Println("websocket connect err:", err)
+		return
+	}
+	defer conn.Close()
+
+	log.Println("websocket connected.")
+
+	// Set ping/pong handlers
+	conn.SetPingHandler(func(string) error {
+		return conn.WriteControl(websocket.PongMessage, []byte{}, time.Now().Add(time.Second))
+	})
+
+	// Set read deadline and pong handler
+	conn.SetReadDeadline(time.Now().Add(time.Second * 60))
+	conn.SetPongHandler(func(string) error {
+		log.Println("pong received.")
+		conn.SetReadDeadline(time.Now().Add(time.Second * 60))
+		return nil
+	})
+
+	// Start a goroutine to read messages and handle disconnection
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					log.Printf("websocket read error: %v", err)
+				}
+				log.Println("closing websocket.")
+				return
+			}
+		}
+	}()
+
+	ports := getPorts()
+	portsBitRate := make([]PortBitRate, len(ports.IDs))
+
+	oldStats := make(map[int]*PortStats)
+	newStats := make(map[int]*PortStats)
+	for _, portId := range ports.IDs {
+		oldStats[portId] = getPortStats(portId)
+	}
+
+	interval := 1
+	ticker := time.NewTicker(time.Duration(interval) * time.Second)
+	pingTicker := time.NewTicker(time.Second * 30)
+	defer ticker.Stop()
+	defer pingTicker.Stop()
+	defer log.Println("websocket closed.")
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-pingTicker.C:
+			if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(time.Second)); err != nil {
+				log.Printf("ping error: %v", err)
+				return
+			}
+		case <-ticker.C:
+			for _, portId := range ports.IDs {
+				newStats[portId] = getPortStats(portId)
+			}
+
+			for i, portId := range ports.IDs {
+				rxMbps, txMbps := calculateMbps(oldStats[portId], newStats[portId], float64(interval))
+				portsBitRate[i] = PortBitRate{portId, rxMbps, txMbps}
+			}
+
+			if err := conn.WriteJSON(portsBitRate); err != nil {
+				log.Printf("websocket write error: %v", err)
+				return
+			}
+
+			for portId, stats := range newStats {
+				oldStats[portId] = stats
+			}
+		}
+	}
+
+}
+
+func calculateMbps(oldStats, newStats *PortStats, interval float64) (rxMbps, txMbps float64) {
+	rxDiff := float64(newStats.RxBytes - oldStats.RxBytes)
+	txDiff := float64(newStats.TxBytes - oldStats.TxBytes)
+
+	rxMbps = (rxDiff * 8) / (interval * 1e6)
+	txMbps = (txDiff * 8) / (interval * 1e6)
+	return rxMbps, txMbps
+}
 
 func filesListHandler(ctx *gin.Context) {
 	filesHash := redisClient.ZRevRange(context.Background(), zsetName, 0, -1).Val()

@@ -5,6 +5,7 @@ go 1.23.2
 require (
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/gorilla/websocket v1.5.3
 	golang.org/x/crypto v0.26.0
 )
 
@@ -49,6 +50,4 @@ require (
 	google.golang.org/protobuf v1.35.1 // indirect
 )
 
-replace (
-	github.com/antoninbas/p4runtime-go-client => ../p4runtime-go-client
-)
+replace github.com/antoninbas/p4runtime-go-client => ../p4runtime-go-client
