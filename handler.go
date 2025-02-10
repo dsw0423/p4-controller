@@ -74,6 +74,7 @@ func fileDownloadHandler(ctx *gin.Context) {
 	filePath := tmpDir + fileName
 	ctx.Header("Content-Disposition", "attachment; filename="+fileName)
 	ctx.Header("Content-Type", "application/octet-stream")
+	ctx.Header("Access-Control-Expose-Headers", "Content-Disposition")
 	ctx.File(filePath)
 }
 
@@ -147,8 +148,12 @@ func setPipeconfHandler(ctx *gin.Context) {
 
 				binPath := tmpDir + bin.Filename
 				p4infoPath := tmpDir + p4info.Filename
-				os.WriteFile(binPath, binBytes, 0644)
-				os.WriteFile(p4infoPath, p4infoBytes, 0644)
+				if err := os.WriteFile(binPath, binBytes, 0644); err != nil {
+					log.Println(err.Error())
+				}
+				if err := os.WriteFile(p4infoPath, p4infoBytes, 0644); err != nil {
+					log.Println(err.Error())
+				}
 
 				log.Println("saved bin and p4info to Redis and disk.")
 			}

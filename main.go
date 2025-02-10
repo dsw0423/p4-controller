@@ -85,11 +85,6 @@ func main() {
 	// refresh tokens
 	router.POST("/refreshToken", handler.RefreshToken)
 
-	// TODO: move to authGroup
-	router.GET("/filesList", filesListHandler)
-	router.DELETE("/file/:hash", fileDeleteHandler)
-	router.GET("/file/:hash", fileDownloadHandler)
-
 	authGroup := router.Group("/auth", handler.AuthCheck)
 	{
 		// setting pipline config
@@ -100,6 +95,15 @@ func main() {
 		authGroup.POST("/packetout", sendPacketOutHandler)
 		// get table entries by name
 		authGroup.GET("/tableEntries", getTableEntriesByNameHandler)
+
+		// get file list
+		authGroup.GET("/filesList", filesListHandler)
+
+		// delete file by hash
+		authGroup.DELETE("/file/:hash", fileDeleteHandler)
+
+		// get file by hash
+		authGroup.GET("/file/:hash", fileDownloadHandler)
 	}
 
 	go router.Run(defaultWebServerAddress)
