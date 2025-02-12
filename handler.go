@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"time"
 
 	"github.com/antoninbas/p4runtime-go-client/pkg/client"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	p4_config_v1 "github.com/p4lang/p4runtime/go/p4/config/v1"
 	p4_v1 "github.com/p4lang/p4runtime/go/p4/v1"
 	"github.com/redis/go-redis/v9"
 )
@@ -29,6 +31,72 @@ var (
 		},
 	}
 )
+
+func getPortsInfoAndStatusHandler(ctx *gin.Context) {
+	ports := getPorts()
+	portsInfo := make([]PortInfo, len(ports.IDs))
+	portsStatus := make([]PortStatus, len(ports.IDs))
+
+	for i, portId := range ports.IDs {
+		portsInfo[i] = *getPortInfo(portId)
+		portsStatus[i] = *getPortStatus(portId)
+	}
+
+	res := make([]PortInfoAndStatus, len(ports.IDs))
+	for i := 0; i < len(res); i++ {
+		res[i] = PortInfoAndStatus{
+			PortId:  ports.IDs[i],
+			MacAddr: portsInfo[i].MacAddr,
+			Mtu:     portsInfo[i].Mtu,
+			Status:  portsStatus[i].Status,
+			Speed:   portsStatus[i].Speed,
+			Duplex:  portsStatus[i].Duplex,
+		}
+	}
+
+	ctx.JSON(http.StatusOK, res)
+}
+
+func getP4InfoHandler(ctx *gin.Context) {
+	pipeconf, err := p4rt_ctl.GetFwdPipe(context.Background(), client.GetFwdPipeP4InfoAndCookie)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"msg": err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, pipeconf.P4Info)
+}
+
+func deleteTableEntryHandler(ctx *gin.Context) {
+	tableName := ctx.Query("tableName")
+	entryId := ctx.Query("entryId")
+	if tableName == "" || entryId == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"msg": "tableName or entryId is missing.",
+		})
+		return
+	}
+
+	if entries, err := p4rt_ctl.ReadTableEntryWildcard(context.Background(), tableName); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"msg": err.Error(),
+		})
+	} else {
+		id, _ := strconv.Atoi(entryId)
+		err = p4rt_ctl.DeleteTableEntry(context.Background(), entries[id])
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{
+				"msg": err.Error(),
+			})
+			return
+		}
+		ctx.JSON(http.StatusOK, gin.H{
+			"msg": "delete table entry successfully.",
+		})
+	}
+}
 
 func portsBitRateHandler(ctx *gin.Context) {
 	conn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
@@ -342,16 +410,17 @@ func getTableEntriesByNameHandler(ctx *gin.Context) {
 			"msg": err.Error(),
 		})
 	} else {
-		resEntries := make([]TableEntryExact, 0)
-		for _, entry := range entries {
+		resEntries := make([]TableEntryExact, 0, len(entries))
+		for i, entry := range entries {
 			var resEntry TableEntryExact
+			resEntry.Id = i
 			resEntry.TableName = tableName
 
 			action := entry.GetAction().GetAction()
 			pipeconf, _ := p4rt_ctl.GetFwdPipe(context.Background(), client.GetFwdPipeP4InfoAndCookie)
 			resEntry.ActionName = getActionName(action, pipeconf)
 
-			resEntry.Params = getActionParams(action)
+			resEntry.Params = getActionParams(action, resEntry.ActionName, pipeconf.P4Info.Actions)
 
 			mfs := make(map[string]string)
 			for _, fieldMatch := range entry.Match {
@@ -362,9 +431,7 @@ func getTableEntriesByNameHandler(ctx *gin.Context) {
 			resEntries = append(resEntries, resEntry)
 		}
 
-		ctx.JSON(http.StatusOK, gin.H{
-			"msg": resEntries,
-		})
+		ctx.JSON(http.StatusOK, resEntries)
 	}
 }
 
@@ -377,10 +444,25 @@ func getActionName(action *p4_v1.Action, pipeconf *client.FwdPipeConfig) string 
 	return ""
 }
 
-func getActionParams(action *p4_v1.Action) []string {
-	res := make([]string, 0)
+func getActionParams(action *p4_v1.Action, actionName string, actions []*p4_config_v1.Action) map[string]string {
+	res := make(map[string]string)
+
+	var getParamName = func(paramId uint32) string {
+		for _, ac := range actions {
+			if ac.Preamble.Name == actionName {
+				for _, param := range ac.Params {
+					if param.Id == paramId {
+						return param.Name
+					}
+				}
+			}
+		}
+		return ""
+	}
+
 	for _, param := range action.Params {
-		res = append(res, byteSliceToString(param.Value))
+		paramName := getParamName(param.ParamId)
+		res[paramName] = byteSliceToString(param.Value)
 	}
 	return res
 }

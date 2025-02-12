@@ -1,9 +1,10 @@
 package main
 
 type TableEntryExact struct {
+	Id         int               `json:"id"`
 	TableName  string            `json:"tableName"`
 	ActionName string            `json:"actionName"`
-	Params     []string          `json:"params"`
+	Params     map[string]string `json:"params"`
 	MatchField map[string]string `json:"matchField"`
 }
 
@@ -48,6 +49,15 @@ type PortStatus struct {
 
 type PortStatusRoot struct {
 	PortStatus `json:"/ethdev/link_status"`
+}
+
+type PortInfoAndStatus struct {
+	PortId  int    `json:"portId"`
+	MacAddr string `json:"mac_addr"`
+	Mtu     int    `json:"mtu"`
+	Status  string `json:"status"`
+	Speed   int    `json:"speed"`
+	Duplex  string `json:"duplex"`
 }
 
 type PortStats struct {

@@ -106,6 +106,12 @@ func main() {
 
 		// get file by hash
 		authGroup.GET("/file/:hash", fileDownloadHandler)
+
+		authGroup.DELETE("/tableEntry", deleteTableEntryHandler)
+
+		authGroup.GET("/p4info", getP4InfoHandler)
+
+		authGroup.GET("/portsInfo", getPortsInfoAndStatusHandler)
 	}
 
 	go router.Run(defaultWebServerAddress)
