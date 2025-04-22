@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"time"
 
@@ -597,4 +598,13 @@ func checkHostId(hostId string) error {
 	}
 
 	return nil
+}
+
+func getHostsHandler(c *gin.Context) {
+	hostsIds := []string{}
+	for id := range hostsInfo {
+		hostsIds = append(hostsIds, id)
+	}
+	slices.Sort(hostsIds)
+	c.JSON(http.StatusOK, hostsIds)
 }

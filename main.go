@@ -68,6 +68,8 @@ func main() {
 		authGroup.GET("/p4info", getP4InfoHandler)
 
 		authGroup.GET("/portsInfo", getPortsInfoAndStatusHandler)
+
+		authGroup.GET("/hosts", getHostsHandler)
 	}
 
 	go router.Run(defaultWebServerAddress)
