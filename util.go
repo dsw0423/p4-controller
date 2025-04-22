@@ -1,15 +1,16 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
-	"os/exec"
+	"fmt"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
 )
 
-func notPrimary() bool {
-	return !isPrimary
+func notPrimaryControllerFor(host *HostInfo) bool {
+	return !host.IsPrimary
 }
 
 func stringToByteSlice(s string) []byte {
@@ -33,31 +34,57 @@ func byteSliceToString(bytes []byte) string {
 	return res
 }
 
-func getPorts() *Ports {
-	inputData := `/ethdev/list`
+func getPorts(hostId string) *Ports {
+	/* inputData := `/ethdev/list`
 	cmd := exec.Command("python3", "/home/dsw/codes/p4-controller/dpdk-telemetry.py")
 	cmd.Stdin = bytes.NewBufferString(inputData)
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Run()
+	cmd.Run() */
+
+	host := hostsInfo[hostId]
+	url := fmt.Sprintf("http://%s:%s/%s", host.IP, host.HTTPPort, "ports")
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println(err)
+	}
 
 	var ports Ports
-	json.Unmarshal(out.Bytes(), &ports)
+	json.Unmarshal(data, &ports)
 	return &ports
 }
 
-func getPortInfo(portId int) *PortInfo {
-	inputData := `/ethdev/info,` + strconv.Itoa(portId)
+func getPortInfo(hostId string, portId int) *PortInfo {
+	/* inputData := `/ethdev/info,` + strconv.Itoa(portId)
 	cmd := exec.Command("python3", "/home/dsw/codes/p4-controller/dpdk-telemetry.py")
 	cmd.Stdin = bytes.NewBufferString(inputData)
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Run()
+	cmd.Run() */
+
+	host := hostsInfo[hostId]
+	url := fmt.Sprintf("http://%s:%s/%s?portId=%v", host.IP, host.HTTPPort, "port_info", portId)
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println(err)
+	}
 
 	var portInfo PortInfo
 	var portInfoRoot PortInfoRoot
 
-	json.Unmarshal(out.Bytes(), &portInfoRoot)
+	json.Unmarshal(data, &portInfoRoot)
 	portInfo.PortId = portId
 	portInfo.MacAddr = portInfoRoot.MacAddr
 	portInfo.Mtu = portInfoRoot.Mtu
@@ -65,18 +92,31 @@ func getPortInfo(portId int) *PortInfo {
 	return &portInfo
 }
 
-func getPortStatus(portId int) *PortStatus {
-	inputData := `/ethdev/link_status,` + strconv.Itoa(portId)
+func getPortStatus(hostId string, portId int) *PortStatus {
+	/* inputData := `/ethdev/link_status,` + strconv.Itoa(portId)
 	cmd := exec.Command("python3", "/home/dsw/codes/p4-controller/dpdk-telemetry.py")
 	cmd.Stdin = bytes.NewBufferString(inputData)
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Run()
+	cmd.Run() */
+
+	host := hostsInfo[hostId]
+	url := fmt.Sprintf("http://%s:%s/%s?portId=%v", host.IP, host.HTTPPort, "port_status", portId)
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println(err)
+	}
 
 	var portStatus PortStatus
 	var portStatusRoot PortStatusRoot
 
-	json.Unmarshal(out.Bytes(), &portStatusRoot)
+	json.Unmarshal(data, &portStatusRoot)
 	portStatus.PortId = portId
 	portStatus.Status = portStatusRoot.Status
 	portStatus.Speed = portStatusRoot.Speed
@@ -85,18 +125,31 @@ func getPortStatus(portId int) *PortStatus {
 	return &portStatus
 }
 
-func getPortStats(portId int) *PortStats {
-	inputData := `/ethdev/stats,` + strconv.Itoa(portId)
+func getPortStats(hostId string, portId int) *PortStats {
+	/* inputData := `/ethdev/stats,` + strconv.Itoa(portId)
 	cmd := exec.Command("python3", "/home/dsw/codes/p4-controller/dpdk-telemetry.py")
 	cmd.Stdin = bytes.NewBufferString(inputData)
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Run()
+	cmd.Run() */
+
+	host := hostsInfo[hostId]
+	url := fmt.Sprintf("http://%s:%s/%s?portId=%v", host.IP, host.HTTPPort, "port_stats", portId)
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println(err)
+	}
 
 	var portStats PortStats
 	var portStatsRoot PortStatsRoot
 
-	json.Unmarshal(out.Bytes(), &portStatsRoot)
+	json.Unmarshal(data, &portStatsRoot)
 	portStats.PortId = portId
 	portStats.RxPackets = portStatsRoot.RxPackets
 	portStats.TxPackets = portStatsRoot.TxPackets

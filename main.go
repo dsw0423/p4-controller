@@ -25,68 +25,24 @@ const (
 )
 
 var (
-	/* are we the primary controller? */
-	isPrimary bool
 	/* temp directory saving files. */
 	tmpDir string
-	/* P4Runtime controller. */
-	p4rt_ctl *client.Client
 	/* Redis client. */
 	redisClient *redis.Client
+
+	hostsInfo map[string]*HostInfo
+
+	stopCh <-chan struct{}
 )
 
 func main() {
 	initialize()
 
-	/* start p4rt_ctl */
-	conn, err := grpc.NewClient(defalutP4RuntimeServerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer conn.Close()
-
-	arbitrationCh := make(chan bool)
-	messageCh := make(chan *p4_v1.StreamMessageResponse, 100)
-	stopCh := signals.RegisterSignalHandlers()
-	stub := p4_v1.NewP4RuntimeClient(conn)
-	electionId := &p4_v1.Uint128{High: 0, Low: 100}
-	p4rt_ctl = client.NewClientForRole(stub, defaultDeviceId, electionId, &p4_v1.Role{Name: "main"})
-
-	go func() {
-		for {
-			if err := p4rt_ctl.Run(stopCh, arbitrationCh, messageCh); err == nil {
-				break
-			} else {
-				log.Println(err.Error())
-			}
-			log.Println("Trying to reconnect to P4Runtime server in 100ms...")
-			time.Sleep(100 * time.Millisecond)
-		}
-	}()
-
-	/* handle StreamChannel messages except arbitration result. */
-	go func() {
-		ctx := context.Background()
-		handleStreamMessages(ctx, p4rt_ctl, messageCh)
-	}()
-
-	/* monitoring arbitration result */
-	go monitoringArbitration(arbitrationCh)
-
-	/* start web router */
 	router := gin.Default()
-
-	/* CORS */
 	router.Use(handler.Cors)
-
-	// login
 	router.POST("/login", handler.Login)
-
-	// refresh tokens
 	router.POST("/refreshToken", handler.RefreshToken)
-
 	router.GET("/portsBitRate", portsBitRateHandler)
-
 	authGroup := router.Group("/auth", handler.AuthCheck)
 	{
 		// setting pipline config
@@ -119,17 +75,6 @@ func main() {
 	log.Println("stopping...")
 }
 
-func monitoringArbitration(arbitrationCh chan bool) {
-	for primary := range arbitrationCh {
-		isPrimary = primary
-		if isPrimary {
-			log.Println("we are the primary controller.")
-		} else {
-			log.Println("we are NOT the primary controller.")
-		}
-	}
-}
-
 func initialize() {
 	if os.Geteuid() != 0 {
 		log.Errorln("root permission is required.")
@@ -147,6 +92,52 @@ func initialize() {
 		Protocol: 2,
 	})
 
+	/* TODO: 写到配置文件里 */
+	hostsInfo = map[string]*HostInfo{
+		"0": {
+			IP:            "127.0.0.1",
+			P4RuntimePort: "9559",
+			HTTPPort:      "8089",
+		},
+	}
+
+	stopCh = signals.RegisterSignalHandlers()
+
+	for _, host := range hostsInfo {
+		/* start p4rt_ctl for each host */
+		conn, err := grpc.NewClient(host.IP+":"+host.P4RuntimePort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer conn.Close()
+
+		arbitrationCh := make(chan bool)
+		messageCh := make(chan *p4_v1.StreamMessageResponse, 100)
+		stub := p4_v1.NewP4RuntimeClient(conn)
+		electionId := &p4_v1.Uint128{High: 0, Low: 100}
+		host.P4RTClient = client.NewClientForRole(stub, defaultDeviceId, electionId, &p4_v1.Role{Name: "main"})
+
+		go func() {
+			for {
+				if err := host.P4RTClient.Run(stopCh, arbitrationCh, messageCh); err == nil {
+					break
+				} else {
+					log.Println(err.Error())
+				}
+				log.Println("Trying to reconnect to P4Runtime server in 100ms...")
+				time.Sleep(100 * time.Millisecond)
+			}
+		}()
+
+		/* handle StreamChannel messages except arbitration result. */
+		go func() {
+			ctx := context.Background()
+			handleStreamMessages(ctx, host.P4RTClient, messageCh)
+		}()
+
+		/* monitoring arbitration result */
+		go monitoringArbitration(host, arbitrationCh)
+	}
 }
 
 func handleStreamMessages(ctx context.Context, p4RtC *client.Client, messageCh <-chan *p4_v1.StreamMessageResponse) {
@@ -170,6 +161,17 @@ func handleStreamMessages(ctx context.Context, p4RtC *client.Client, messageCh <
 			log.Errorf("Received StreamError")
 		default:
 			log.Errorf("Received unknown stream message")
+		}
+	}
+}
+
+func monitoringArbitration(host *HostInfo, arbitrationCh chan bool) {
+	for primary := range arbitrationCh {
+		host.IsPrimary = primary
+		if host.IsPrimary {
+			log.Printf("we are the primary controller for %s", host.IP)
+		} else {
+			log.Printf("we are NOT the primary controller for %s", host.IP)
 		}
 	}
 }

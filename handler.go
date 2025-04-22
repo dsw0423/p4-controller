@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"strconv"
 	"time"
 
@@ -33,13 +33,21 @@ var (
 )
 
 func getPortsInfoAndStatusHandler(ctx *gin.Context) {
-	ports := getPorts()
+	hostId := ctx.Query("hostId")
+	if err := checkHostId(hostId); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"msg": err.Error(),
+		})
+		return
+	}
+
+	ports := getPorts(hostId)
 	portsInfo := make([]PortInfo, len(ports.IDs))
 	portsStatus := make([]PortStatus, len(ports.IDs))
 
 	for i, portId := range ports.IDs {
-		portsInfo[i] = *getPortInfo(portId)
-		portsStatus[i] = *getPortStatus(portId)
+		portsInfo[i] = *getPortInfo(hostId, portId)
+		portsStatus[i] = *getPortStatus(hostId, portId)
 	}
 
 	res := make([]PortInfoAndStatus, len(ports.IDs))
@@ -58,7 +66,23 @@ func getPortsInfoAndStatusHandler(ctx *gin.Context) {
 }
 
 func getP4InfoHandler(ctx *gin.Context) {
-	pipeconf, err := p4rt_ctl.GetFwdPipe(context.Background(), client.GetFwdPipeP4InfoAndCookie)
+	hostId := ctx.Query("hostId")
+	if err := checkHostId(hostId); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"msg": err.Error(),
+		})
+		return
+	}
+	host := hostsInfo[hostId]
+
+	if notPrimaryControllerFor(host) {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"msg": "not primary controller, cannot get p4info.",
+		})
+		return
+	}
+
+	pipeconf, err := host.P4RTClient.GetFwdPipe(context.Background(), client.GetFwdPipeP4InfoAndCookie)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"msg": err.Error(),
@@ -70,6 +94,22 @@ func getP4InfoHandler(ctx *gin.Context) {
 }
 
 func deleteTableEntryHandler(ctx *gin.Context) {
+	hostId := ctx.Query("hostId")
+	if err := checkHostId(hostId); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"msg": err.Error(),
+		})
+		return
+	}
+	host := hostsInfo[hostId]
+
+	if notPrimaryControllerFor(host) {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"msg": "not primary controller, cannot delete table entry.",
+		})
+		return
+	}
+
 	tableName := ctx.Query("tableName")
 	entryId := ctx.Query("entryId")
 	if tableName == "" || entryId == "" {
@@ -79,13 +119,13 @@ func deleteTableEntryHandler(ctx *gin.Context) {
 		return
 	}
 
-	if entries, err := p4rt_ctl.ReadTableEntryWildcard(context.Background(), tableName); err != nil {
+	if entries, err := host.P4RTClient.ReadTableEntryWildcard(context.Background(), tableName); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"msg": err.Error(),
 		})
 	} else {
 		id, _ := strconv.Atoi(entryId)
-		err = p4rt_ctl.DeleteTableEntry(context.Background(), entries[id])
+		err = host.P4RTClient.DeleteTableEntry(context.Background(), entries[id])
 		if err != nil {
 			ctx.JSON(http.StatusInternalServerError, gin.H{
 				"msg": err.Error(),
@@ -99,6 +139,14 @@ func deleteTableEntryHandler(ctx *gin.Context) {
 }
 
 func portsBitRateHandler(ctx *gin.Context) {
+	hostId := ctx.Query("hostId")
+	if err := checkHostId(hostId); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"msg": err.Error(),
+		})
+		return
+	}
+
 	conn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
 		log.Println("websocket connect err:", err)
@@ -136,13 +184,13 @@ func portsBitRateHandler(ctx *gin.Context) {
 		}
 	}()
 
-	ports := getPorts()
+	ports := getPorts(hostId)
 	portsBitRate := make([]PortBitRate, len(ports.IDs))
 
 	oldStats := make(map[int]*PortStats)
 	newStats := make(map[int]*PortStats)
 	for _, portId := range ports.IDs {
-		oldStats[portId] = getPortStats(portId)
+		oldStats[portId] = getPortStats(hostId, portId)
 	}
 
 	interval := 1
@@ -163,7 +211,7 @@ func portsBitRateHandler(ctx *gin.Context) {
 			}
 		case <-ticker.C:
 			for _, portId := range ports.IDs {
-				newStats[portId] = getPortStats(portId)
+				newStats[portId] = getPortStats(hostId, portId)
 			}
 
 			for i, portId := range ports.IDs {
@@ -251,7 +299,16 @@ func fileDownloadHandler(ctx *gin.Context) {
 }
 
 func setPipeconfHandler(ctx *gin.Context) {
-	if notPrimary() {
+	hostId := ctx.Query("hostId")
+	if err := checkHostId(hostId); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"msg": err.Error(),
+		})
+		return
+	}
+	host := hostsInfo[hostId]
+
+	if notPrimaryControllerFor(host) {
 		fmt.Println("not primary.")
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"msg": "controller not primary.",
@@ -276,16 +333,18 @@ func setPipeconfHandler(ctx *gin.Context) {
 	log.Println(p4infoBytes)
 
 	for i := 0; i < 3; i++ {
-		if _, err := p4rt_ctl.SetFwdPipeFromBytes(context.Background(), binBytes, p4infoBytes, 0); err != nil {
+		if _, err := host.P4RTClient.SetFwdPipeFromBytes(context.Background(), binBytes, p4infoBytes, 0); err != nil {
 			// restart infrap4d and reconnect.
-			path := "/root/p4-example/setup_ports.sh"
+			/* path := "/root/p4-example/setup_ports.sh"
 			cmd := exec.Command("bash", path)
 			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
+			cmd.Stderr = os.Stderr */
+
+			url := fmt.Sprintf("http://%s:%s/%s", host.IP, host.HTTPPort, "restart_infrap4d")
 
 			var i int
 			for i = 0; i < 3; i++ {
-				if err := cmd.Run(); err == nil {
+				if _, err := http.Get(url); err == nil {
 					break
 				} else {
 					time.Sleep(100 * time.Millisecond)
@@ -344,7 +403,20 @@ func getSha256String(data []byte) string {
 }
 
 func insertTableEntryExactHandler(ctx *gin.Context) {
-	if notPrimary() {
+	hostId := ctx.Query("hostId")
+	if err := checkHostId(hostId); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"msg": err.Error(),
+		})
+		return
+	}
+	host := hostsInfo[hostId]
+
+	if notPrimaryControllerFor(host) {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"msg": "controller not primary.",
+		})
+		ctx.Abort()
 		return
 	}
 
@@ -361,15 +433,15 @@ func insertTableEntryExactHandler(ctx *gin.Context) {
 		params = append(params, stringToByteSlice(param))
 	}
 
-	action := p4rt_ctl.NewTableActionDirect(tabelEntry.ActionName, params)
+	action := host.P4RTClient.NewTableActionDirect(tabelEntry.ActionName, params)
 
 	mfs := make(map[string]client.MatchInterface)
 	for k, v := range tabelEntry.MatchField {
 		mfs[k] = &client.ExactMatch{Value: stringToByteSlice(v)}
 	}
 
-	entry := p4rt_ctl.NewTableEntry(tabelEntry.TableName, mfs, action, nil)
-	if err := p4rt_ctl.InsertTableEntry(context.Background(), entry); err != nil {
+	entry := host.P4RTClient.NewTableEntry(tabelEntry.TableName, mfs, action, nil)
+	if err := host.P4RTClient.InsertTableEntry(context.Background(), entry); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"msg": err.Error(),
 		})
@@ -383,10 +455,27 @@ func insertTableEntryExactHandler(ctx *gin.Context) {
 }
 
 func sendPacketOutHandler(ctx *gin.Context) {
+	hostId := ctx.Query("hostId")
+	if err := checkHostId(hostId); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"msg": err.Error(),
+		})
+		return
+	}
+	host := hostsInfo[hostId]
+
+	if notPrimaryControllerFor(host) {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"msg": "controller not primary.",
+		})
+		ctx.Abort()
+		return
+	}
+
 	value := make([]byte, 1)
 	value[0] = byte(1)
 	packetOut := &p4_v1.PacketOut{Metadata: []*p4_v1.PacketMetadata{{MetadataId: 1, Value: value}}}
-	err := p4rt_ctl.SendPacketOut(context.Background(), packetOut)
+	err := host.P4RTClient.SendPacketOut(context.Background(), packetOut)
 	if err != nil {
 		ctx.JSON(503, err)
 	} else {
@@ -397,6 +486,23 @@ func sendPacketOutHandler(ctx *gin.Context) {
 }
 
 func getTableEntriesByNameHandler(ctx *gin.Context) {
+	hostId := ctx.Query("hostId")
+	if err := checkHostId(hostId); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"msg": err.Error(),
+		})
+		return
+	}
+	host := hostsInfo[hostId]
+
+	if notPrimaryControllerFor(host) {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"msg": "controller not primary.",
+		})
+		ctx.Abort()
+		return
+	}
+
 	tableName := ctx.Query("name")
 	if tableName == "" {
 		ctx.JSON(http.StatusBadRequest, gin.H{
@@ -405,7 +511,7 @@ func getTableEntriesByNameHandler(ctx *gin.Context) {
 		return
 	}
 
-	if entries, err := p4rt_ctl.ReadTableEntryWildcard(context.Background(), tableName); err != nil {
+	if entries, err := host.P4RTClient.ReadTableEntryWildcard(context.Background(), tableName); err != nil {
 		ctx.JSON(http.StatusServiceUnavailable, gin.H{
 			"msg": err.Error(),
 		})
@@ -417,7 +523,7 @@ func getTableEntriesByNameHandler(ctx *gin.Context) {
 			resEntry.TableName = tableName
 
 			action := entry.GetAction().GetAction()
-			pipeconf, _ := p4rt_ctl.GetFwdPipe(context.Background(), client.GetFwdPipeP4InfoAndCookie)
+			pipeconf, _ := host.P4RTClient.GetFwdPipe(context.Background(), client.GetFwdPipeP4InfoAndCookie)
 			resEntry.ActionName = getActionName(action, pipeconf)
 
 			resEntry.Params = getActionParams(action, resEntry.ActionName, pipeconf.P4Info.Actions)
@@ -479,4 +585,16 @@ func getMatchFieldName(field *p4_v1.FieldMatch, tableName string, pipeconf *clie
 	}
 
 	return ""
+}
+
+func checkHostId(hostId string) error {
+	if hostId == "" {
+		return errors.New("host missing")
+	}
+
+	if hostsInfo[hostId] == nil {
+		return errors.New("host not found")
+	}
+
+	return nil
 }

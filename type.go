@@ -1,5 +1,9 @@
 package main
 
+import (
+	"github.com/antoninbas/p4runtime-go-client/pkg/client"
+)
+
 type TableEntryExact struct {
 	Id         int               `json:"id"`
 	TableName  string            `json:"tableName"`
@@ -76,4 +80,12 @@ type PortBitRate struct {
 	PortId int     `json:"portId"`
 	RxRate float64 `json:"rxRate"`
 	TxRate float64 `json:"txRate"`
+}
+
+type HostInfo struct {
+	IP            string
+	P4RuntimePort string
+	HTTPPort      string
+	P4RTClient    *client.Client
+	IsPrimary     bool
 }
