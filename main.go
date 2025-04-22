@@ -111,7 +111,7 @@ func initialize() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer conn.Close()
+		// defer conn.Close()
 
 		arbitrationCh := make(chan bool)
 		messageCh := make(chan *p4_v1.StreamMessageResponse, 100)
